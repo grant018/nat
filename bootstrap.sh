@@ -17,6 +17,14 @@
 
 set -euo pipefail
 
+# Homebrew runs a "cleanup" pass after every install that occasionally
+# exits non-zero even when the install itself succeeded. Combined with
+# set -e that silently aborts the bootstrap. Suppress the post-install
+# cleanup and the noisy update check so brew exits cleanly.
+export HOMEBREW_NO_INSTALL_CLEANUP=1
+export HOMEBREW_NO_AUTO_UPDATE=1
+export HOMEBREW_NO_ENV_HINTS=1
+
 c_cyan='\033[0;36m'
 c_yellow='\033[0;33m'
 c_red='\033[0;31m'
@@ -40,17 +48,21 @@ if [ "$(uname)" != "Darwin" ]; then
   exit 1
 fi
 
+brew_shellenv() {
+  if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+  elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+  fi
+}
+
 # --- Homebrew -------------------------------------------------------------
 if ! command -v brew >/dev/null 2>&1; then
   status "Installing Homebrew (you'll be prompted for your password)..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   # The installer prints shell-init instructions but does not modify the
   # current session's PATH. Source it ourselves so subsequent brew calls work.
-  if [ -x /opt/homebrew/bin/brew ]; then
-    eval "$(/opt/homebrew/bin/brew shellenv)"
-  elif [ -x /usr/local/bin/brew ]; then
-    eval "$(/usr/local/bin/brew shellenv)"
-  fi
+  brew_shellenv
 else
   status "Homebrew already installed."
 fi
@@ -59,6 +71,12 @@ fi
 if ! command -v pwsh >/dev/null 2>&1; then
   status "Installing PowerShell 7..."
   brew install --cask powershell
+  brew_shellenv
+  hash -r
+  if ! command -v pwsh >/dev/null 2>&1; then
+    err "PowerShell installed but 'pwsh' is not on PATH. Open a new terminal and re-run."
+    exit 1
+  fi
 else
   status "PowerShell 7 already installed."
 fi
@@ -67,6 +85,12 @@ fi
 if ! command -v node >/dev/null 2>&1; then
   status "Installing Node.js..."
   brew install node
+  brew_shellenv
+  hash -r
+  if ! command -v node >/dev/null 2>&1; then
+    err "Node installed but 'node' is not on PATH. Open a new terminal and re-run."
+    exit 1
+  fi
 else
   status "Node.js already installed."
 fi
