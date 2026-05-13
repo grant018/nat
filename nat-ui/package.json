@@ -1,0 +1,16 @@
+{
+  "name": "nat-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local browser frontend for nat.ps1 (M365 termination workflow)",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

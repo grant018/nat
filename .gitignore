@@ -1,0 +1,17 @@
+# Transcripts contain real user UPNs and tenant data.
+Logs/
+
+# Local-only files in this repo's scope (Scripts/ also holds unrelated content).
+Testing/
+Termination-Walkthrough.md
+
+# Node deps for nat-ui - reinstalled by start.cmd on first launch.
+nat-ui/node_modules/
+nat-ui/npm-debug.log*
+nat-ui/.env
+
+# OS / editor cruft
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

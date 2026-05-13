@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>nat &mdash; M365 Termination</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">nat</span>
+        <span class="brand-sub">M365 termination workflow</span>
+      </div>
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle theme">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/></svg>
+      </button>
+    </header>
+
+    <main id="app">
+      <!-- ============================== FORM VIEW ============================== -->
+      <section id="view-form" class="view">
+        <div class="card">
+          <div class="card-head">
+            <h1>New termination</h1>
+            <label class="pill-toggle" title="Run without making changes">
+              <input type="checkbox" id="whatif" />
+              <span>Dry run</span>
+            </label>
+          </div>
+
+          <div class="tabs" role="tablist">
+            <button class="tab is-active" data-mode="terminate" role="tab">Termination</button>
+            <button class="tab" data-mode="licenses" role="tab">Licenses only</button>
+          </div>
+
+          <div id="health-banner" class="banner banner-error" hidden>
+            <strong>Setup issue:</strong>
+            <span id="health-message"></span>
+          </div>
+
+          <div id="preflight-banner" class="banner banner-warn" hidden>
+            <strong>Heads up.</strong>
+            <span>This user appears to be partially offboarded:</span>
+            <ul id="preflight-signals"></ul>
+            <label class="ack"><input type="checkbox" id="preflight-ack" /> Run anyway</label>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="label">Departing user</span>
+              <input id="userUPN" type="email" autocomplete="off" spellcheck="false"
+                placeholder="john.doe@daxko.com" autofocus />
+              <span class="hint" id="userUPN-hint">UPN of the person being offboarded.</span>
+            </label>
+
+            <label class="field" data-only="terminate">
+              <span class="label">Delegates <span class="muted">&mdash; FullAccess (&ldquo;Read and manage&rdquo;)</span></span>
+              <div class="chip-input" id="delegate-input">
+                <div class="chips" id="delegate-chips"></div>
+                <input type="text" id="delegate-entry" autocomplete="off" spellcheck="false"
+                  placeholder="supervisor@daxko.com" />
+              </div>
+              <span class="hint">Press Enter, comma, or paste a list. Leave empty to skip.</span>
+            </label>
+
+            <label class="field" data-only="terminate">
+              <span class="label">Auto-reply message <span class="muted" id="autoreply-count">0 chars</span></span>
+              <textarea id="autoreply" rows="5"
+                placeholder="John Doe is no longer with the company. Please contact supervisor@daxko.com."></textarea>
+              <span class="hint">Sent to internal + external. Line breaks become paragraphs. Leave empty to skip.</span>
+            </label>
+
+            <label class="field" data-only="terminate">
+              <span class="label">Litigation hold duration</span>
+              <div class="row">
+                <input id="hold-days" type="number" min="1" max="36500" value="1825" />
+                <span class="muted">days &mdash; default 1825 (5 years)</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="run-btn" class="btn btn-primary" type="button" disabled>Review and run</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================== RUN VIEW =============================== -->
+      <section id="view-run" class="view" hidden>
+        <div class="run-head">
+          <div>
+            <h1 id="run-title">Termination</h1>
+            <div class="run-meta">
+              <span id="run-upn"></span>
+              <span class="dot-sep">&middot;</span>
+              <span id="run-elapsed">0s</span>
+              <span id="run-dryrun" class="badge badge-warn" hidden>DRY RUN</span>
+              <span id="run-status" class="badge"></span>
+            </div>
+          </div>
+          <div class="run-actions">
+            <button id="open-transcript" class="btn btn-ghost" type="button" hidden>Open transcript</button>
+            <button id="run-another" class="btn btn-ghost" type="button" hidden>Run another</button>
+          </div>
+        </div>
+
+        <div id="auth-indicator" class="auth-indicator" hidden>
+          <span class="spinner"></span>
+          Awaiting Microsoft sign-in&hellip; check for a browser popup.
+        </div>
+
+        <div class="run-grid">
+          <ol class="steps" id="steps"></ol>
+          <div class="log-wrap">
+            <div class="log-head">
+              <span class="muted">Live log</span>
+              <span class="muted" id="log-paused" hidden>paused on hover</span>
+            </div>
+            <pre id="log" class="log"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============================ CONFIRM MODAL ============================ -->
+    <div id="modal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>Confirm</h2>
+        <dl id="confirm-summary" class="summary"></dl>
+        <div id="confirm-onedrive" class="banner banner-warn" hidden>
+          <strong>OneDrive check.</strong>
+          Please ensure the user&rsquo;s OneDrive files have been copied to SharePoint before completing this step. Removing licenses deletes their OneDrive content.
+        </div>
+        <div id="confirm-warn" class="banner banner-warn" hidden>
+          Dry run is OFF &mdash; this will make real changes.
+        </div>
+        <div class="modal-actions">
+          <button id="cancel-btn" class="btn btn-ghost" type="button">Cancel</button>
+          <button id="confirm-btn" class="btn btn-primary" type="button">Run now</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
