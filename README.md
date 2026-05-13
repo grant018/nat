@@ -17,22 +17,40 @@ A separate **Licenses-only** run handles license removal after the OneDrive tran
 
 ## Install + run (one command)
 
-Open **PowerShell** on a Windows machine and paste:
+### Windows
+
+Open **PowerShell** and paste:
 
 ```powershell
 irm https://raw.githubusercontent.com/grant018/nat/main/bootstrap.ps1 | iex
 ```
 
-That's it. The bootstrap installs everything you need — PowerShell 7, Node.js, the Microsoft Graph + Exchange Online modules — downloads the repo to `%USERPROFILE%\nat`, and opens the app in your browser at <http://localhost:5757>.
+Installs PowerShell 7, Node.js, the Microsoft modules, downloads the repo to `%USERPROFILE%\nat`, and opens the app at <http://localhost:5757>.
 
-The first run takes a couple of minutes (mostly the Microsoft modules). Subsequent runs:
+Subsequent runs:
 
 ```powershell
 cd $env:USERPROFILE\nat\nat-ui
 .\start.cmd
 ```
 
-Re-running the bootstrap command later is safe — it skips anything that's already installed and updates the repo in place.
+### macOS
+
+Open **Terminal** and paste:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/grant018/nat/main/bootstrap.sh | bash
+```
+
+Installs Homebrew (if missing), PowerShell 7, Node.js, the Microsoft modules, downloads the repo to `~/nat`, and opens the app at <http://localhost:5757>.
+
+Subsequent runs:
+
+```bash
+~/nat/nat-ui/start.sh
+```
+
+The first run takes a couple of minutes (mostly the Microsoft modules). Re-running the bootstrap is safe — it skips anything already installed and updates the repo in place.
 
 ---
 
@@ -52,22 +70,22 @@ You'll be prompted to sign in to Microsoft 365 the first time the script connect
 
 ## Using the CLI instead
 
-If you'd rather skip the web UI:
+If you'd rather skip the web UI, run `nat.ps1` from `pwsh` on either platform (use `./nat.ps1` on Mac, `.\nat.ps1` on Windows):
 
 ```powershell
 # Fully interactive - prompts for everything
-.\nat.ps1
+./nat.ps1
 
 # Dry run
-.\nat.ps1 -WhatIf
+./nat.ps1 -WhatIf
 
 # Fully scripted
-.\nat.ps1 -UserUPN john.doe@daxko.com `
+./nat.ps1 -UserUPN john.doe@daxko.com `
     -DelegateUPN 'supervisor@daxko.com','coworker@daxko.com' `
     -AutoReplyMessage 'John is no longer with the company. Contact supervisor@daxko.com.'
 
 # Licenses-only pass (after OneDrive transfer)
-.\nat.ps1 -UserUPN john.doe@daxko.com -LicensesOnly
+./nat.ps1 -UserUPN john.doe@daxko.com -LicensesOnly
 ```
 
 ---
@@ -87,11 +105,15 @@ Litigation hold additionally requires the departing user to have an **Exchange O
 
 ## Manual install (advanced)
 
-If you don't want to use the bootstrap script, install these manually and then `git clone` (or download zip) and run `nat-ui\start.cmd`:
+If you don't want to use the bootstrap script, install these manually and then run `nat-ui/start.cmd` (Windows) or `nat-ui/start.sh` (Mac):
 
-- **PowerShell 7+** — `winget install Microsoft.PowerShell` or <https://aka.ms/powershell>
-- **Node.js LTS** — `winget install OpenJS.NodeJS.LTS` or <https://nodejs.org/>
-- **Microsoft modules** — run in `pwsh`:
+- **PowerShell 7+**
+  - Windows: `winget install Microsoft.PowerShell` or <https://aka.ms/powershell>
+  - Mac: `brew install --cask powershell`
+- **Node.js LTS**
+  - Windows: `winget install OpenJS.NodeJS.LTS` or <https://nodejs.org/>
+  - Mac: `brew install node`
+- **Microsoft modules** — run in `pwsh` (same on both platforms):
   ```powershell
   Install-Module Microsoft.Graph.Authentication, Microsoft.Graph.Users,
                  Microsoft.Graph.Users.Actions, Microsoft.Graph.Groups,
@@ -102,8 +124,11 @@ If you don't want to use the bootstrap script, install these manually and then `
 
 ## Troubleshooting
 
-**Bootstrap says "winget is required but not found"**
+**Bootstrap says "winget is required but not found"** (Windows)
 Install the **App Installer** package from the Microsoft Store, then re-run the one-liner. <https://apps.microsoft.com/detail/9NBLGGH4NNS1>
+
+**Mac: `start.sh` is "permission denied"**
+The file isn't executable. Run `chmod +x ~/nat/nat-ui/start.sh ~/nat/bootstrap.sh` and try again. (The bootstrap normally does this for you.)
 
 **"Missing required modules"** in the UI
 Open `pwsh` and run the `Install-Module` line from the Manual Install section above.

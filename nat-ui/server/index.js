@@ -4,6 +4,9 @@ const { spawn } = require('child_process');
 const { createRun, getRun } = require('./runs');
 const { spawnPwsh } = require('./pwshRunner');
 
+const IS_WIN = process.platform === 'win32';
+const IS_MAC = process.platform === 'darwin';
+
 const app = express();
 const PORT = Number(process.env.PORT) || 5757;
 const WEB_DIR = path.resolve(__dirname, '..', 'web');
@@ -15,7 +18,7 @@ app.use(express.static(WEB_DIR, { extensions: ['html'] }));
 const MODULE_PATH = path.resolve(__dirname, '..', 'ps', 'Nat.psm1');
 app.get('/api/health', (_req, res) => {
   const probe = spawn(
-    'pwsh.exe',
+    'pwsh',
     [
       '-NoProfile',
       '-Command',
@@ -28,7 +31,7 @@ app.get('/api/health', (_req, res) => {
   probe.stdout.on('data', (c) => (out += c.toString()));
   probe.stderr.on('data', (c) => (err += c.toString()));
   probe.on('error', () => {
-    res.status(500).json({ ok: false, error: 'pwsh.exe not found on PATH. Install PowerShell 7+.' });
+    res.status(500).json({ ok: false, error: 'pwsh not found on PATH. Install PowerShell 7+.' });
   });
   probe.on('exit', () => {
     const trimmed = out.trim();
@@ -111,14 +114,21 @@ app.get('/api/runs/:id/stream', (req, res) => {
   });
 });
 
-// --- Open transcript in Explorer -----------------------------------------
+// --- Open transcript in the OS file browser ------------------------------
 app.post('/api/runs/:id/open-transcript', (req, res) => {
   const run = getRun(req.params.id);
   if (!run) return res.status(404).json({ error: 'No such run' });
   const final = [...run.events].reverse().find((e) => e.type === 'done' || e.type === 'fatal');
   const transcript = final && final.transcript;
   if (!transcript) return res.status(404).json({ error: 'No transcript for this run' });
-  spawn('explorer.exe', ['/select,', transcript], { windowsHide: false, detached: true }).unref();
+  if (IS_WIN) {
+    spawn('explorer.exe', ['/select,', transcript], { detached: true }).unref();
+  } else if (IS_MAC) {
+    // -R reveals the file in Finder rather than opening it.
+    spawn('open', ['-R', transcript], { detached: true }).unref();
+  } else {
+    spawn('xdg-open', [path.dirname(transcript)], { detached: true }).unref();
+  }
   res.json({ ok: true });
 });
 

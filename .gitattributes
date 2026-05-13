@@ -1,0 +1,11 @@
+# Shell scripts must use LF endings or bash on macOS/Linux will fail
+# with "bad interpreter: /usr/bin/env bash^M". Authoring on Windows is
+# fine - git keeps these LF in the working tree.
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# Batch / PowerShell scripts are Windows-native; keep CRLF.
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf

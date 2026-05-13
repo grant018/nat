@@ -33,7 +33,7 @@ function buildArgs(opts) {
 
 function spawnPwsh(opts, run) {
   const args = buildArgs(opts);
-  const child = spawn('pwsh.exe', args, {
+  const child = spawn('pwsh', args, {
     windowsHide: true,
     env: { ...process.env, NAT_OUTPUT_MODE: 'json' },
   });
