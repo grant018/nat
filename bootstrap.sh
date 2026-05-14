@@ -101,10 +101,10 @@ install_pwsh_mac() {
 }
 
 if ! command -v pwsh >/dev/null 2>&1; then
-  install_pwsh_mac
+  install_pwsh_mac || true
   hash -r
   if ! command -v pwsh >/dev/null 2>&1; then
-    err "PowerShell installed but 'pwsh' is not on PATH. Open a new terminal and re-run."
+    err "PowerShell install did not put 'pwsh' on PATH. Open a new terminal and re-run."
     exit 1
   fi
 else
@@ -112,13 +112,17 @@ else
 fi
 
 # --- Node.js --------------------------------------------------------------
+# Wrap brew in '|| true' because it occasionally exits non-zero from
+# benign post-install messaging even on a successful install. With set -e
+# that kills the script silently right after the install. Verify by
+# checking whether 'node' ended up on PATH instead.
 if ! command -v node >/dev/null 2>&1; then
   status "Installing Node.js..."
-  brew install node
+  brew install node || true
   brew_shellenv
   hash -r
   if ! command -v node >/dev/null 2>&1; then
-    err "Node installed but 'node' is not on PATH. Open a new terminal and re-run."
+    err "Node install did not put 'node' on PATH. See brew output above for clues."
     exit 1
   fi
 else
