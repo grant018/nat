@@ -100,7 +100,17 @@ function Connect-Services {
         }
         if (-not $exo) {
             Write-Step 'Connecting to Exchange Online...'
-            Connect-ExchangeOnline -ShowBanner:$false | Out-Null
+            # On macOS, MSAL.NET's native interactive auth path throws
+            # "macOS <ver>" exceptions inside Connect-ExchangeOnline (a
+            # known issue with newer macOS versions vs the MSAL bundled
+            # in ExchangeOnlineManagement). Device code flow bypasses
+            # the native browser bridge and works reliably.
+            if ($IsMacOS) {
+                Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
+                Connect-ExchangeOnline -Device -ShowBanner:$false | Out-Null
+            } else {
+                Connect-ExchangeOnline -ShowBanner:$false | Out-Null
+            }
         }
     }
 }
