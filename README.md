@@ -109,7 +109,7 @@ If you don't want to use the bootstrap script, install these manually and then r
 
 - **PowerShell 7+**
   - Windows: `winget install Microsoft.PowerShell` or <https://aka.ms/powershell>
-  - Mac: `brew install --cask powershell`
+  - Mac: download the `.pkg` for your architecture (`arm64` for Apple Silicon, `x64` for Intel) from <https://github.com/PowerShell/PowerShell/releases/latest> and double-click to install. The Homebrew cask was removed in 2024.
 - **Node.js LTS**
   - Windows: `winget install OpenJS.NodeJS.LTS` or <https://nodejs.org/>
   - Mac: `brew install node`

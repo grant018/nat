@@ -68,10 +68,40 @@ else
 fi
 
 # --- PowerShell 7 ---------------------------------------------------------
+# Homebrew's powershell cask was removed in 2024+ (only the deprecated
+# powershell@preview cask remains). Use Microsoft's official .pkg from
+# the PowerShell GitHub releases instead - this is what learn.microsoft.com
+# recommends.
+install_pwsh_mac() {
+  local arch pkg_arch asset_url tmp_pkg
+  arch="$(uname -m)"
+  case "$arch" in
+    arm64)  pkg_arch="arm64" ;;
+    x86_64) pkg_arch="x64" ;;
+    *)      err "Unsupported architecture: $arch"; exit 1 ;;
+  esac
+
+  status "Locating the latest PowerShell release for $arch..."
+  asset_url="$(curl -fsSL https://api.github.com/repos/PowerShell/PowerShell/releases/latest \
+    | grep -oE "https://github.com/PowerShell/PowerShell/releases/download/[^\"]*-osx-${pkg_arch}\.pkg" \
+    | head -n 1)"
+  if [ -z "$asset_url" ]; then
+    err "Could not find a PowerShell .pkg for arch=$pkg_arch on the latest release."
+    err "Manual install: https://github.com/PowerShell/PowerShell/releases/latest"
+    exit 1
+  fi
+
+  tmp_pkg="$(mktemp -t powershell-XXXXXX).pkg"
+  status "Downloading $(basename "$asset_url")..."
+  curl -fsSL "$asset_url" -o "$tmp_pkg"
+
+  status "Installing PowerShell 7 (you'll be prompted for your password)..."
+  sudo installer -pkg "$tmp_pkg" -target /
+  rm -f "$tmp_pkg"
+}
+
 if ! command -v pwsh >/dev/null 2>&1; then
-  status "Installing PowerShell 7..."
-  brew install --cask powershell
-  brew_shellenv
+  install_pwsh_mac
   hash -r
   if ! command -v pwsh >/dev/null 2>&1; then
     err "PowerShell installed but 'pwsh' is not on PATH. Open a new terminal and re-run."
