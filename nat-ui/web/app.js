@@ -66,10 +66,8 @@ const els = {
   odIdleUpn: $('#od-idle-upn'),
   odStartBtn: $('#od-start-btn'),
   odRunning: $('#od-running'),
-  odRunningMsg: $('#od-running-msg'),
-  odProgressFill: $('#od-progress-fill'),
-  odProgressPct: $('#od-progress-pct'),
   odProgressUrl: $('#od-progress-url'),
+  odMarkDoneBtn: $('#od-mark-done-btn'),
   odDone: $('#od-done'),
   odLicensesBtn: $('#od-licenses-btn'),
   odFailed: $('#od-failed'),
@@ -95,8 +93,6 @@ const state = {
   pausedScroll: false,
   runMode: 'terminate',
   runWhatIf: false,
-  onedriveJobId: null,
-  onedrivePollTimer: null,
   onedriveProgressUrl: null,
   onedriveUpn: null,
 };
@@ -275,9 +271,6 @@ function showRunView(body) {
   state.runMode = body.mode;
   state.runWhatIf = body.whatIf;
   els.onedrivePanel.hidden = true;
-  clearTimeout(state.onedrivePollTimer);
-  state.onedrivePollTimer = null;
-  state.onedriveJobId = null;
   state.onedriveProgressUrl = null;
   state.onedriveUpn = null;
 
@@ -443,14 +436,12 @@ function showOnedrivePanelIdle(upn) {
 
 els.odStartBtn.addEventListener('click', startOnedriveTransfer);
 els.odRetryBtn.addEventListener('click', startOnedriveTransfer);
+els.odMarkDoneBtn.addEventListener('click', showOnedriveDone);
 
 async function startOnedriveTransfer() {
   els.odIdle.hidden = true;
   els.odFailed.hidden = true;
   els.odRunning.hidden = false;
-  els.odRunningMsg.textContent = 'Starting…';
-  els.odProgressFill.style.width = '0%';
-  els.odProgressPct.textContent = '0%';
 
   try {
     const r = await fetch('/api/onedrive-transfer', {
@@ -463,59 +454,19 @@ async function startOnedriveTransfer() {
       throw new Error(data.error || `Server returned ${r.status}`);
     }
     const job = await r.json();
-    state.onedriveJobId = job.id;
     state.onedriveProgressUrl = job.progress_url || null;
     if (job.progress_url) els.odProgressUrl.href = job.progress_url;
-    pollOnedriveStatus();
   } catch (err) {
     showOnedriveFailed(err.message);
   }
 }
 
-function pollOnedriveStatus() {
-  clearTimeout(state.onedrivePollTimer);
-  state.onedrivePollTimer = setTimeout(async () => {
-    try {
-      const r = await fetch(`/api/onedrive-transfer/${state.onedriveJobId}`);
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
-        throw new Error(data.error || `Server returned ${r.status}`);
-      }
-      updateOnedriveProgress(await r.json());
-    } catch (err) {
-      showOnedriveFailed(err.message);
-    }
-  }, 3000);
-}
-
-function updateOnedriveProgress(job) {
-  const total = job.total_items || 0;
-  const done = job.processed_items || 0;
-  const pct = total > 0 ? Math.round((done / total) * 100) : (job.progress || 0);
-  els.odProgressFill.style.width = `${pct}%`;
-  els.odProgressPct.textContent = `${pct}%`;
-
-  const msg = job.message || (total > 0 ? `${done} / ${total} files` : null) || job.status || 'Processing…';
-  els.odRunningMsg.textContent = msg;
-
-  const status = String(job.status || '').toLowerCase();
-  if (status === 'completed' || status === 'done' || status === 'success') {
-    showOnedriveDone();
-  } else if (status === 'failed' || status === 'error') {
-    showOnedriveFailed(job.message || 'Transfer failed. Check the progress page for details.');
-  } else {
-    pollOnedriveStatus();
-  }
-}
-
 function showOnedriveDone() {
-  clearTimeout(state.onedrivePollTimer);
   els.odRunning.hidden = true;
   els.odDone.hidden = false;
 }
 
 function showOnedriveFailed(msg) {
-  clearTimeout(state.onedrivePollTimer);
   els.odRunning.hidden = true;
   els.odErrorMsg.textContent = msg;
   els.odErrorUrl.hidden = !state.onedriveProgressUrl;

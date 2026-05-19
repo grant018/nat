@@ -152,17 +152,6 @@ app.post('/api/onedrive-transfer', async (req, res) => {
   }
 });
 
-app.get('/api/onedrive-transfer/:id', async (req, res) => {
-  try {
-    const r = await fetch(`${OD_API}/${req.params.id}`, {
-      headers: { 'x-api-key': OD_API_KEY },
-    });
-    if (!r.ok) throw new Error(`Transfer service returned ${r.status}`);
-    res.json(await r.json());
-  } catch (err) {
-    res.status(502).json({ error: err.message });
-  }
-});
 
 // --- Helpers --------------------------------------------------------------
 function isValidUPN(s) {

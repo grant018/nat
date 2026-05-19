@@ -139,14 +139,13 @@
           <div id="od-running" class="od-card" hidden>
             <div class="od-card-icon"><span class="spinner-lg"></span></div>
             <div class="od-card-body">
-              <h3>OneDrive transfer in progress</h3>
-              <p id="od-running-msg">Starting&hellip;</p>
-              <div class="od-progress">
-                <div class="od-progress-bar"><div id="od-progress-fill"></div></div>
-                <span id="od-progress-pct">0%</span>
-              </div>
+              <h3>OneDrive transfer started</h3>
+              <p>Monitor progress in the transfer app, then confirm when complete.</p>
             </div>
-            <a id="od-progress-url" href="#" target="_blank" rel="noopener" class="btn btn-ghost">View progress</a>
+            <div class="od-btn-group">
+              <a id="od-progress-url" href="#" target="_blank" rel="noopener" class="btn btn-ghost">View progress</a>
+              <button id="od-mark-done-btn" class="btn btn-primary" type="button">Transfer complete</button>
+            </div>
           </div>
 
           <div id="od-done" class="od-card od-card-ok" hidden>
