@@ -122,6 +122,58 @@
             <pre id="log" class="log"></pre>
           </div>
         </div>
+
+        <!-- OneDrive transfer panel - shown after successful termination -->
+        <div id="onedrive-panel" class="od-panel" hidden>
+          <div id="od-idle" class="od-card">
+            <div class="od-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="od-card-body">
+              <h3>Next: Transfer OneDrive to SharePoint</h3>
+              <p>Move <strong id="od-idle-upn"></strong>&rsquo;s files before removing licenses.</p>
+            </div>
+            <button id="od-start-btn" class="btn btn-primary" type="button">Start transfer</button>
+          </div>
+
+          <div id="od-running" class="od-card" hidden>
+            <div class="od-card-icon"><span class="spinner-lg"></span></div>
+            <div class="od-card-body">
+              <h3>OneDrive transfer in progress</h3>
+              <p id="od-running-msg">Starting&hellip;</p>
+              <div class="od-progress">
+                <div class="od-progress-bar"><div id="od-progress-fill"></div></div>
+                <span id="od-progress-pct">0%</span>
+              </div>
+            </div>
+            <a id="od-progress-url" href="#" target="_blank" rel="noopener" class="btn btn-ghost">View progress</a>
+          </div>
+
+          <div id="od-done" class="od-card od-card-ok" hidden>
+            <div class="od-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+            <div class="od-card-body">
+              <h3>Transfer complete</h3>
+              <p>Files moved to SharePoint. Ready to remove licenses.</p>
+            </div>
+            <button id="od-licenses-btn" class="btn btn-primary" type="button">Remove licenses &rarr;</button>
+          </div>
+
+          <div id="od-failed" class="od-card od-card-err" hidden>
+            <div class="od-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </div>
+            <div class="od-card-body">
+              <h3>Transfer failed</h3>
+              <p id="od-error-msg"></p>
+            </div>
+            <div class="od-btn-group">
+              <a id="od-error-url" href="#" target="_blank" rel="noopener" class="btn btn-ghost">View logs</a>
+              <button id="od-retry-btn" class="btn btn-primary" type="button">Retry</button>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 

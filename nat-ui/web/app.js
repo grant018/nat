@@ -60,6 +60,22 @@ const els = {
   logPaused: $('#log-paused'),
   openTranscript: $('#open-transcript'),
   runAnother: $('#run-another'),
+  // onedrive panel
+  onedrivePanel: $('#onedrive-panel'),
+  odIdle: $('#od-idle'),
+  odIdleUpn: $('#od-idle-upn'),
+  odStartBtn: $('#od-start-btn'),
+  odRunning: $('#od-running'),
+  odRunningMsg: $('#od-running-msg'),
+  odProgressFill: $('#od-progress-fill'),
+  odProgressPct: $('#od-progress-pct'),
+  odProgressUrl: $('#od-progress-url'),
+  odDone: $('#od-done'),
+  odLicensesBtn: $('#od-licenses-btn'),
+  odFailed: $('#od-failed'),
+  odErrorMsg: $('#od-error-msg'),
+  odErrorUrl: $('#od-error-url'),
+  odRetryBtn: $('#od-retry-btn'),
   // modal
   modal: $('#modal'),
   confirmSummary: $('#confirm-summary'),
@@ -77,6 +93,12 @@ const state = {
   preflightAcked: false,
   currentRunId: null,
   pausedScroll: false,
+  runMode: 'terminate',
+  runWhatIf: false,
+  onedriveJobId: null,
+  onedrivePollTimer: null,
+  onedriveProgressUrl: null,
+  onedriveUpn: null,
 };
 
 // ---------------------------- Theme -------------------------------
@@ -250,6 +272,15 @@ function showRunView(body) {
   els.log.innerHTML = '';
   els.authIndicator.hidden = true;
 
+  state.runMode = body.mode;
+  state.runWhatIf = body.whatIf;
+  els.onedrivePanel.hidden = true;
+  clearTimeout(state.onedrivePollTimer);
+  state.onedrivePollTimer = null;
+  state.onedriveJobId = null;
+  state.onedriveProgressUrl = null;
+  state.onedriveUpn = null;
+
   const steps = body.mode === 'licenses' ? LICENSES_STEPS : STEPS;
   els.steps.innerHTML = steps.map((s) =>
     `<li class="step" data-id="${s.id}" data-status="pending">
@@ -363,7 +394,9 @@ function finalizeRun(evt) {
   els.runAnother.hidden = false;
   // Mark any still-running step as failed.
   els.steps.querySelectorAll('.step[data-status="running"]').forEach((li) => setStep(li.dataset.id, 'fail'));
-  // Any pending steps that never started are left as pending icons.
+  if (state.runMode === 'terminate' && !state.runWhatIf && evt.type === 'done' && evt.status === 'success') {
+    showOnedrivePanelIdle(els.runUPN.textContent);
+  }
 }
 
 els.openTranscript.addEventListener('click', async () => {
@@ -396,6 +429,115 @@ function escapeHtml(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
 }
+
+// ---------------------------- OneDrive transfer -------------------
+function showOnedrivePanelIdle(upn) {
+  state.onedriveUpn = upn;
+  els.odIdleUpn.textContent = upn;
+  els.odIdle.hidden = false;
+  els.odRunning.hidden = true;
+  els.odDone.hidden = true;
+  els.odFailed.hidden = true;
+  els.onedrivePanel.hidden = false;
+}
+
+els.odStartBtn.addEventListener('click', startOnedriveTransfer);
+els.odRetryBtn.addEventListener('click', startOnedriveTransfer);
+
+async function startOnedriveTransfer() {
+  els.odIdle.hidden = true;
+  els.odFailed.hidden = true;
+  els.odRunning.hidden = false;
+  els.odRunningMsg.textContent = 'Starting…';
+  els.odProgressFill.style.width = '0%';
+  els.odProgressPct.textContent = '0%';
+
+  try {
+    const r = await fetch('/api/onedrive-transfer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userUPN: state.onedriveUpn }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `Server returned ${r.status}`);
+    }
+    const job = await r.json();
+    state.onedriveJobId = job.id;
+    state.onedriveProgressUrl = job.progress_url || null;
+    if (job.progress_url) els.odProgressUrl.href = job.progress_url;
+    pollOnedriveStatus();
+  } catch (err) {
+    showOnedriveFailed(err.message);
+  }
+}
+
+function pollOnedriveStatus() {
+  clearTimeout(state.onedrivePollTimer);
+  state.onedrivePollTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/onedrive-transfer/${state.onedriveJobId}`);
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || `Server returned ${r.status}`);
+      }
+      updateOnedriveProgress(await r.json());
+    } catch (err) {
+      showOnedriveFailed(err.message);
+    }
+  }, 3000);
+}
+
+function updateOnedriveProgress(job) {
+  const total = job.total_items || 0;
+  const done = job.processed_items || 0;
+  const pct = total > 0 ? Math.round((done / total) * 100) : (job.progress || 0);
+  els.odProgressFill.style.width = `${pct}%`;
+  els.odProgressPct.textContent = `${pct}%`;
+
+  const msg = job.message || (total > 0 ? `${done} / ${total} files` : null) || job.status || 'Processing…';
+  els.odRunningMsg.textContent = msg;
+
+  const status = String(job.status || '').toLowerCase();
+  if (status === 'completed' || status === 'done' || status === 'success') {
+    showOnedriveDone();
+  } else if (status === 'failed' || status === 'error') {
+    showOnedriveFailed(job.message || 'Transfer failed. Check the progress page for details.');
+  } else {
+    pollOnedriveStatus();
+  }
+}
+
+function showOnedriveDone() {
+  clearTimeout(state.onedrivePollTimer);
+  els.odRunning.hidden = true;
+  els.odDone.hidden = false;
+}
+
+function showOnedriveFailed(msg) {
+  clearTimeout(state.onedrivePollTimer);
+  els.odRunning.hidden = true;
+  els.odErrorMsg.textContent = msg;
+  els.odErrorUrl.hidden = !state.onedriveProgressUrl;
+  if (state.onedriveProgressUrl) els.odErrorUrl.href = state.onedriveProgressUrl;
+  els.odFailed.hidden = false;
+}
+
+els.odLicensesBtn.addEventListener('click', () => {
+  els.viewRun.hidden = true;
+  els.viewForm.hidden = false;
+  // Switch to licenses tab
+  els.tabs.forEach((t) => t.classList.toggle('is-active', t.dataset.mode === 'licenses'));
+  state.mode = 'licenses';
+  document.querySelectorAll('[data-only]').forEach((el) => {
+    el.hidden = el.dataset.only !== 'licenses';
+  });
+  els.runBtn.textContent = 'Remove licenses';
+  // Pre-fill the UPN
+  els.userUPN.value = state.onedriveUpn || '';
+  els.userUPN.classList.remove('invalid');
+  updateRunButton();
+});
 
 // ---------------------------- Boot --------------------------------
 loadTheme();

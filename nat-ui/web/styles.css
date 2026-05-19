@@ -277,3 +277,51 @@ textarea { resize: vertical; min-height: 96px; font-family: inherit; }
 .summary dd { margin: 0; color: var(--fg); word-break: break-word; }
 .summary dd.empty { color: var(--fg-3); font-style: italic; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ---------------------------- OneDrive panel -------------------- */
+.od-panel { margin-top: 16px; animation: fade 200ms ease-out; }
+
+.od-card {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 16px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  box-shadow: var(--shadow);
+}
+.od-card + .od-card { margin-top: 12px; }
+.od-card-ok {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 5%, var(--bg-2));
+}
+.od-card-err {
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  background: color-mix(in srgb, var(--err) 5%, var(--bg-2));
+}
+.od-card-icon {
+  flex-shrink: 0; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+}
+.od-card-ok .od-card-icon { color: var(--ok); }
+.od-card-err .od-card-icon { color: var(--err); }
+.od-card-body { flex: 1; min-width: 180px; }
+.od-card-body h3 { margin: 0 0 3px; font-size: 14px; font-weight: 600; }
+.od-card-body p { margin: 0; color: var(--fg-2); font-size: 13px; line-height: 1.4; }
+.od-btn-group { display: flex; gap: 8px; }
+
+.od-progress { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.od-progress-bar {
+  flex: 1; height: 4px; background: var(--bg-3);
+  border-radius: 999px; overflow: hidden;
+}
+#od-progress-fill {
+  height: 100%; width: 0%; background: var(--accent);
+  border-radius: 999px; transition: width 300ms ease;
+}
+#od-progress-pct { font-size: 11.5px; color: var(--fg-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.spinner-lg {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite; display: inline-block;
+}

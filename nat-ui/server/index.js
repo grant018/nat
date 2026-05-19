@@ -132,6 +132,38 @@ app.post('/api/runs/:id/open-transcript', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- OneDrive transfer proxy ----------------------------------------------
+const OD_API = 'http://10.8.34.107:4173/api/external/jobs';
+const OD_API_KEY = '8B87m3Bg0D2gpjM7NKrvmY3UinIK+JKYGmTHst3U5oY=';
+
+app.post('/api/onedrive-transfer', async (req, res) => {
+  const { userUPN } = req.body || {};
+  if (!isValidUPN(userUPN)) return res.status(400).json({ error: 'Invalid UPN' });
+  try {
+    const r = await fetch(OD_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': OD_API_KEY },
+      body: JSON.stringify({ upn: userUPN }),
+    });
+    if (!r.ok) throw new Error(`Transfer service returned ${r.status}`);
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/onedrive-transfer/:id', async (req, res) => {
+  try {
+    const r = await fetch(`${OD_API}/${req.params.id}`, {
+      headers: { 'x-api-key': OD_API_KEY },
+    });
+    if (!r.ok) throw new Error(`Transfer service returned ${r.status}`);
+    res.json(await r.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // --- Helpers --------------------------------------------------------------
 function isValidUPN(s) {
   return typeof s === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
