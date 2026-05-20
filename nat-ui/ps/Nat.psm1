@@ -74,18 +74,20 @@ function Connect-Services {
     if ($Service -in 'All', 'Graph') {
         if (-not (Get-MgContext)) {
             Write-Step 'Connecting to Microsoft Graph...'
-            # WAM (Windows Web Account Manager) requires a parent HWND.
-            # It fails when pwsh is spawned by Node (no window) or run inside
-            # ISE / any embedded host. Fall back to device code in those cases,
-            # and always on macOS where WAM doesn't exist.
-            $useDeviceAuth = $IsMacOS -or
-                             ($env:NAT_OUTPUT_MODE -eq 'json') -or
-                             ($host.Name -ne 'ConsoleHost')
-            if ($useDeviceAuth) {
-                Write-Step 'No interactive window available - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
-                # Redirect streams 2 (stderr) and 6 (information) to the pipeline
-                # so the device code message reaches Node's stdout listener.
-                # Without this the code is silently discarded and auth hangs.
+            # WAM needs a parent HWND. When pwsh is spawned by Node (no window)
+            # or run inside ISE, there is none. On macOS WAM doesn't exist.
+            # Strategy:
+            #   macOS          -> device code (only option)
+            #   Windows + no window (JSON mode or ISE) -> spawn a new visible
+            #     pwsh window so WAM has an HWND; MSAL token cache is shared
+            #     between processes, so the main process picks it up silently.
+            #   Windows + ConsoleHost -> normal interactive WAM (unchanged)
+            $needsPopup = (-not $IsMacOS) -and (
+                ($env:NAT_OUTPUT_MODE -eq 'json') -or
+                ($host.Name -ne 'ConsoleHost')
+            )
+            if ($IsMacOS) {
+                Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
                 Connect-MgGraph -Scopes @(
                     'User.ReadWrite.All',
                     'Group.ReadWrite.All',
@@ -95,6 +97,22 @@ function Connect-Services {
                 ) -UseDeviceAuthentication -NoWelcome 2>&1 6>&1 | ForEach-Object {
                     [Console]::Out.WriteLine([string]$_)
                     [Console]::Out.Flush()
+                }
+            } elseif ($needsPopup) {
+                Write-Step 'Opening a sign-in window - please authenticate there, then return here.' 'WARN'
+                $scopes = "'User.ReadWrite.All','Group.ReadWrite.All','GroupMember.ReadWrite.All','Directory.ReadWrite.All','Organization.Read.All'"
+                $authCmd = "Connect-MgGraph -Scopes $scopes -NoWelcome | Out-Null"
+                Start-Process 'pwsh' -ArgumentList @('-NoProfile', '-Command', $authCmd) -Wait
+                # Pick up the token cached by the popup window.
+                Connect-MgGraph -Scopes @(
+                    'User.ReadWrite.All',
+                    'Group.ReadWrite.All',
+                    'GroupMember.ReadWrite.All',
+                    'Directory.ReadWrite.All',
+                    'Organization.Read.All'
+                ) -NoWelcome | Out-Null
+                if (-not (Get-MgContext)) {
+                    throw 'Microsoft Graph sign-in was not completed in the popup window. Please try again.'
                 }
             } else {
                 Connect-MgGraph -Scopes @(
