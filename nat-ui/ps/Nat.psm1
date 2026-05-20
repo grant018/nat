@@ -83,13 +83,19 @@ function Connect-Services {
                              ($host.Name -ne 'ConsoleHost')
             if ($useDeviceAuth) {
                 Write-Step 'No interactive window available - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
+                # Redirect streams 2 (stderr) and 6 (information) to the pipeline
+                # so the device code message reaches Node's stdout listener.
+                # Without this the code is silently discarded and auth hangs.
                 Connect-MgGraph -Scopes @(
                     'User.ReadWrite.All',
                     'Group.ReadWrite.All',
                     'GroupMember.ReadWrite.All',
                     'Directory.ReadWrite.All',
                     'Organization.Read.All'
-                ) -UseDeviceAuthentication -NoWelcome | Out-Null
+                ) -UseDeviceAuthentication -NoWelcome 2>&1 6>&1 | ForEach-Object {
+                    [Console]::Out.WriteLine([string]$_)
+                    [Console]::Out.Flush()
+                }
             } else {
                 Connect-MgGraph -Scopes @(
                     'User.ReadWrite.All',
