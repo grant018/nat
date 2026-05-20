@@ -62,12 +62,72 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $WhatIfPreference = $false
-# The UI modal already gates the run, so suppress in-script confirmation
-# prompts. Otherwise cmdlets with ConfirmImpact='High' (e.g.
-# Remove-M365TerminationLicenses) block forever on a stdin prompt that the
-# Node-spawned child process can never answer.
 $ConfirmPreference = 'None'
 $env:NAT_OUTPUT_MODE = 'json'
+
+# ---- Relay mode (Windows only) ------------------------------------------
+# The Node-spawned process has no console window, so MSAL/WAM crashes on
+# any interactive auth attempt. Fix: spawn a visible worker window (which
+# DOES get a console HWND) and tail its NDJSON output back to our stdout.
+# NAT_IS_WORKER is inherited by the child so it skips this block.
+if (-not $IsMacOS -and -not $env:NAT_IS_WORKER) {
+    $ipcFile = [System.IO.Path]::GetTempFileName()
+    $env:NAT_IS_WORKER   = '1'
+    $env:NAT_OUTPUT_FILE = $ipcFile
+
+    $wArgs = [System.Collections.Generic.List[string]]::new()
+    $wArgs.AddRange([string[]]@('-NoProfile','-ExecutionPolicy','Bypass','-File',$PSCommandPath,
+                                '-UserUPN',$UserUPN,'-LogPath',$LogPath))
+    if ($DelegateUPN.Count -gt 0)     { $wArgs.AddRange([string[]]@('-DelegateUPN',($DelegateUPN -join ','))) }
+    if ($AutoReplyMessage)             { $wArgs.AddRange([string[]]@('-AutoReplyMessage',$AutoReplyMessage)) }
+    if ($LitigationHoldDays -ne 1825) { $wArgs.AddRange([string[]]@('-LitigationHoldDays',[string]$LitigationHoldDays)) }
+    if ($LicensesOnly)                 { $wArgs.Add('-LicensesOnly') }
+    if ($DryRun)                       { $wArgs.Add('-DryRun') }
+    if ($PreflightOnly)                { $wArgs.Add('-PreflightOnly') }
+
+    $proc = Start-Process 'pwsh' -ArgumentList $wArgs -PassThru
+    $env:NAT_IS_WORKER   = ''
+    $env:NAT_OUTPUT_FILE = ''
+
+    $pos = 0L
+    do {
+        Start-Sleep -Milliseconds 150
+        try {
+            if ([System.IO.FileInfo]::new($ipcFile).Length -gt $pos) {
+                $fs = [System.IO.FileStream]::new($ipcFile,
+                    [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::Read,
+                    [System.IO.FileShare]::ReadWrite)
+                $fs.Seek($pos, [System.IO.SeekOrigin]::Begin) | Out-Null
+                $sr = [System.IO.StreamReader]::new($fs)
+                while (-not $sr.EndOfStream) {
+                    $line = $sr.ReadLine()
+                    if ($line.Trim()) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
+                }
+                $pos = $fs.Position; $sr.Dispose(); $fs.Dispose()
+            }
+        } catch {}
+    } while (-not $proc.HasExited)
+
+    Start-Sleep -Milliseconds 300    # final drain
+    try {
+        $fs = [System.IO.FileStream]::new($ipcFile,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::ReadWrite)
+        $fs.Seek($pos, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $sr = [System.IO.StreamReader]::new($fs)
+        while (-not $sr.EndOfStream) {
+            $line = $sr.ReadLine()
+            if ($line.Trim()) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
+        }
+        $sr.Dispose(); $fs.Dispose()
+    } catch {}
+
+    Remove-Item $ipcFile -Force -ErrorAction SilentlyContinue
+    exit ($proc.ExitCode ?? 0)
+}
+# ---- End relay mode -------------------------------------------------------
 
 Import-Module (Join-Path $PSScriptRoot 'Nat.psm1') -Force -DisableNameChecking
 
