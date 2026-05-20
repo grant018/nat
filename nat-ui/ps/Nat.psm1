@@ -147,9 +147,20 @@ function Connect-Services {
             # known issue with newer macOS versions vs the MSAL bundled
             # in ExchangeOnlineManagement). Device code flow bypasses
             # the native browser bridge and works reliably.
+            $needsPopup = (-not $IsMacOS) -and (
+                ($env:NAT_OUTPUT_MODE -eq 'json') -or
+                ($host.Name -ne 'ConsoleHost')
+            )
             if ($IsMacOS) {
                 Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
                 Connect-ExchangeOnline -Device -ShowBanner:$false | Out-Null
+            } elseif ($needsPopup) {
+                Write-Step 'Opening a sign-in window for Exchange Online - please authenticate there, then return here.' 'WARN'
+                $authCmd = "Connect-ExchangeOnline -ShowBanner:`$false | Out-Null"
+                Start-Process 'pwsh' -ArgumentList @('-NoProfile', '-Command', $authCmd) -Wait
+                # WAM caches the token in the Windows account store so the main
+                # process can acquire it silently without needing an interactive window.
+                Connect-ExchangeOnline -ShowBanner:$false | Out-Null
             } else {
                 Connect-ExchangeOnline -ShowBanner:$false | Out-Null
             }
