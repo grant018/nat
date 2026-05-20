@@ -74,13 +74,31 @@ function Connect-Services {
     if ($Service -in 'All', 'Graph') {
         if (-not (Get-MgContext)) {
             Write-Step 'Connecting to Microsoft Graph...'
-            Connect-MgGraph -Scopes @(
-                'User.ReadWrite.All',
-                'Group.ReadWrite.All',
-                'GroupMember.ReadWrite.All',
-                'Directory.ReadWrite.All',
-                'Organization.Read.All'
-            ) -NoWelcome | Out-Null
+            # WAM (Windows Web Account Manager) requires a parent HWND.
+            # It fails when pwsh is spawned by Node (no window) or run inside
+            # ISE / any embedded host. Fall back to device code in those cases,
+            # and always on macOS where WAM doesn't exist.
+            $useDeviceAuth = $IsMacOS -or
+                             ($env:NAT_OUTPUT_MODE -eq 'json') -or
+                             ($host.Name -ne 'ConsoleHost')
+            if ($useDeviceAuth) {
+                Write-Step 'No interactive window available - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
+                Connect-MgGraph -Scopes @(
+                    'User.ReadWrite.All',
+                    'Group.ReadWrite.All',
+                    'GroupMember.ReadWrite.All',
+                    'Directory.ReadWrite.All',
+                    'Organization.Read.All'
+                ) -UseDeviceAuthentication -NoWelcome | Out-Null
+            } else {
+                Connect-MgGraph -Scopes @(
+                    'User.ReadWrite.All',
+                    'Group.ReadWrite.All',
+                    'GroupMember.ReadWrite.All',
+                    'Directory.ReadWrite.All',
+                    'Organization.Read.All'
+                ) -NoWelcome | Out-Null
+            }
         }
     }
 
