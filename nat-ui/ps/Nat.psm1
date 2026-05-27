@@ -76,6 +76,29 @@ function Connect-Services {
         [string]$Service = 'All'
     )
 
+    # IMPORTANT: connect EXO BEFORE Graph. Both modules use MSAL internally;
+    # when Graph initializes MSAL first, EXO can inherit a polluted MSAL state
+    # that surfaces as Get-ConnectionContext throwing NullReferenceException
+    # (seen on Windows 11 26100 / pwsh 7.6 with ExchangeOnlineManagement 3.x).
+    # Force-reloading the EXO module guarantees a clean MSAL initialization.
+    # We also skip Get-ConnectionInformation entirely - in worker mode the
+    # process is always fresh, and that cmdlet has a habit of throwing the
+    # same NullRef when the module's internal state isn't fully set up yet.
+    if ($Service -in 'All', 'Exo') {
+        Write-Step 'Connecting to Exchange Online...'
+        Remove-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
+        Import-Module ExchangeOnlineManagement -Force
+        if ($IsMacOS) {
+            # On macOS, MSAL.NET's native interactive auth path throws
+            # "macOS <ver>" exceptions inside Connect-ExchangeOnline. Device
+            # code flow bypasses the native browser bridge and works reliably.
+            Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
+            Connect-ExchangeOnline -Device -ShowBanner:$false | Out-Null
+        } else {
+            Connect-ExchangeOnline -ShowBanner:$false | Out-Null
+        }
+    }
+
     if ($Service -in 'All', 'Graph') {
         if (-not (Get-MgContext)) {
             Write-Step 'Connecting to Microsoft Graph...'
@@ -98,36 +121,6 @@ function Connect-Services {
                     'Directory.ReadWrite.All',
                     'Organization.Read.All'
                 ) -NoWelcome | Out-Null
-            }
-        }
-    }
-
-    if ($Service -in 'All', 'Exo') {
-        # Get-ConnectionInformation can throw "Error to log cannot be null/empty"
-        # as a terminating error when EXO's in-session connection cache is in a
-        # broken state (expired session, killed prior run, etc.). -ErrorAction
-        # SilentlyContinue doesn't catch that flavour - wrap it ourselves and
-        # treat any failure as "not connected" so we just (re)connect cleanly.
-        $exo = $null
-        try {
-            $exo = Get-ConnectionInformation -ErrorAction Stop |
-                Where-Object { $_.State -eq 'Connected' }
-        } catch {
-            try { Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
-            $exo = $null
-        }
-        if (-not $exo) {
-            Write-Step 'Connecting to Exchange Online...'
-            # On macOS, MSAL.NET's native interactive auth path throws
-            # "macOS <ver>" exceptions inside Connect-ExchangeOnline (a
-            # known issue with newer macOS versions vs the MSAL bundled
-            # in ExchangeOnlineManagement). Device code flow bypasses
-            # the native browser bridge and works reliably.
-            if ($IsMacOS) {
-                Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
-                Connect-ExchangeOnline -Device -ShowBanner:$false | Out-Null
-            } else {
-                Connect-ExchangeOnline -ShowBanner:$false | Out-Null
             }
         }
     }
