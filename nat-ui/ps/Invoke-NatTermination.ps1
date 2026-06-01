@@ -65,6 +65,26 @@ $WhatIfPreference = $false
 $ConfirmPreference = 'None'
 $env:NAT_OUTPUT_MODE = 'json'
 
+# Top-level safety net. Without it, any unhandled error outside the main
+# try/catch (Import-Module failure, syntax error, relay crash, etc.) exits
+# silently with code 1 because the worker's stderr goes to its own (often
+# invisible) console window - nothing makes it back to Node, and the UI
+# just sees "pwsh exited unexpectedly". Write directly to the IPC file when
+# in worker mode so the coordinator forwards it; otherwise straight to stdout.
+trap {
+    $errEvent = @{
+        type    = 'fatal'
+        message = "$($_.Exception.Message) | $($_.ScriptStackTrace)"
+        ts      = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress
+    if ($env:NAT_OUTPUT_FILE) {
+        try { [System.IO.File]::AppendAllText($env:NAT_OUTPUT_FILE, $errEvent + "`n") } catch { }
+    } else {
+        try { [Console]::Out.WriteLine($errEvent); [Console]::Out.Flush() } catch { }
+    }
+    exit 1
+}
+
 # ---- Relay mode (Windows only) ------------------------------------------
 # The Node-spawned process has no console window, so MSAL/WAM crashes on
 # any interactive auth attempt. Fix: spawn a visible worker window (which
@@ -128,6 +148,21 @@ if (-not $IsMacOS -and -not $env:NAT_IS_WORKER) {
     exit ($proc.ExitCode ?? 0)
 }
 # ---- End relay mode -------------------------------------------------------
+
+# Worker-mode startup beacon. If this event appears in the UI but no other
+# events follow, we know the worker spawned but crashed before reaching the
+# main workflow - which narrows the search to Import-Module / auth / module
+# loading. If this never appears, Start-Process isn't actually launching a
+# usable pwsh worker on this machine.
+if ($env:NAT_IS_WORKER -and $env:NAT_OUTPUT_FILE) {
+    $bootEvt = @{
+        type    = 'log'
+        level   = 'INFO'
+        message = "Worker started (PID=$PID, pwsh=$($PSVersionTable.PSVersion))"
+        ts      = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress
+    try { [System.IO.File]::AppendAllText($env:NAT_OUTPUT_FILE, $bootEvt + "`n") } catch { }
+}
 
 Import-Module (Join-Path $PSScriptRoot 'Nat.psm1') -Force -DisableNameChecking
 
