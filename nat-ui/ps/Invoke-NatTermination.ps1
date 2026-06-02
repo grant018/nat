@@ -116,16 +116,35 @@ if (-not $IsMacOS -and -not $env:NAT_IS_WORKER) {
     } | ConvertTo-Json -Compress
     [System.IO.File]::AppendAllText($ipcFile, $coordStart + "`n")
 
+    # Use .NET Process.Start with explicit stderr capture. Start-Process's
+    # -RedirectStandardError requires UseShellExecute=false and hides the
+    # window, but it loses any errors written to the worker's stderr (param
+    # binding failures, native crash messages, etc.). With Process.Start we
+    # can capture stderr regardless of window state, then forward it back as
+    # a fatal event so the UI sees what actually went wrong.
+    $sbErr = [System.Text.StringBuilder]::new()
     try {
-        $proc = Start-Process 'pwsh' -ArgumentList $wArgs -PassThru -ErrorAction Stop
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = 'pwsh'
+        foreach ($a in $wArgs) { [void]$psi.ArgumentList.Add($a) }
+        $psi.UseShellExecute        = $false
+        $psi.CreateNoWindow         = $false
+        $psi.RedirectStandardError  = $true
+        $proc = [System.Diagnostics.Process]::new()
+        $proc.StartInfo = $psi
+        $proc.add_ErrorDataReceived({
+            param($s, $e)
+            if ($null -ne $e.Data) { [void]$sbErr.AppendLine($e.Data) }
+        })
+        [void]$proc.Start()
+        $proc.BeginErrorReadLine()
     } catch {
         $spawnErr = @{
             type    = 'fatal'
-            message = "Start-Process pwsh failed: $($_.Exception.Message)"
+            message = "Process.Start pwsh failed: $($_.Exception.Message)"
             ts      = (Get-Date).ToString('o')
         } | ConvertTo-Json -Compress
         [System.IO.File]::AppendAllText($ipcFile, $spawnErr + "`n")
-        # Drain so the UI sees the error.
         Get-Content -Raw $ipcFile | Write-Output
         Remove-Item $ipcFile -Force -ErrorAction SilentlyContinue
         exit 1
@@ -188,6 +207,22 @@ if (-not $IsMacOS -and -not $env:NAT_IS_WORKER) {
             ts      = (Get-Date).ToString('o')
         } | ConvertTo-Json -Compress
         [Console]::Out.WriteLine($coordEnd); [Console]::Out.Flush()
+    } catch {}
+
+    # If the worker wrote anything to stderr, emit it as a fatal event so
+    # the UI sees it. This catches errors that fire before our trap is
+    # registered (param binding failures, native pwsh crashes, etc.).
+    try {
+        $proc.WaitForExit()
+        $stderr = $sbErr.ToString().Trim()
+        if ($stderr) {
+            $stderrEvt = @{
+                type    = 'fatal'
+                message = "Worker stderr: $stderr"
+                ts      = (Get-Date).ToString('o')
+            } | ConvertTo-Json -Compress
+            [Console]::Out.WriteLine($stderrEvt); [Console]::Out.Flush()
+        }
     } catch {}
 
     Remove-Item $ipcFile -Force -ErrorAction SilentlyContinue
