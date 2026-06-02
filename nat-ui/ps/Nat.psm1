@@ -65,6 +65,138 @@ function Assert-RequiredModules {
     }
 }
 
+function Get-NatTokenClaims {
+    # Decode the payload section of a JWT. Used to extract the UPN and tid
+    # claims from an access token we acquired ourselves, so we can pass them
+    # to Connect-ExchangeOnline (which needs UserPrincipalName + the token).
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Token)
+    $payload = $Token.Split('.')[1]
+    $padding = (4 - ($payload.Length % 4)) % 4
+    if ($padding) { $payload += '=' * $padding }
+    $payload = $payload.Replace('-', '+').Replace('_', '/')
+    $json = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload))
+    return $json | ConvertFrom-Json
+}
+
+function Invoke-NatMacOAuth {
+    <#
+    .SYNOPSIS
+        OAuth 2.0 authorization-code-with-PKCE flow for macOS.
+    .DESCRIPTION
+        MSAL.NET (bundled in the EXO and Graph modules) crashes on macOS 15+
+        because its 'default OS browser' path returns PlatformNotSupportedException.
+        We bypass MSAL by running the flow ourselves: open the auth URL via
+        `open`, listen on localhost for the redirect, exchange the code for an
+        access token, and hand the token back to the caller to plug into
+        Connect-MgGraph / Connect-ExchangeOnline -AccessToken.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ClientId,
+        [Parameter(Mandatory)][string[]]$Scopes,
+        [string]$TenantId = 'common'
+    )
+
+    # PKCE: 32 random bytes -> base64url verifier; SHA256(verifier) -> challenge.
+    $verifierBytes = [byte[]]::new(32)
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($verifierBytes)
+    $verifier  = [Convert]::ToBase64String($verifierBytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+    $challengeBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($verifier))
+    $challenge = [Convert]::ToBase64String($challengeBytes).TrimEnd('=').Replace('+','-').Replace('/','_')
+
+    # Bind a localhost listener on the first free port in 8400-8499. Microsoft's
+    # public PowerShell client apps accept http://localhost:* as a redirect URI.
+    $listener = [System.Net.HttpListener]::new()
+    $port = 0
+    foreach ($p in 8400..8499) {
+        try {
+            $listener.Prefixes.Clear()
+            $listener.Prefixes.Add("http://localhost:$p/")
+            $listener.Start()
+            $port = $p
+            break
+        } catch {
+            # Port in use; try the next one.
+        }
+    }
+    if ($port -eq 0) {
+        throw "Could not bind any localhost port in 8400-8499 for the OAuth callback."
+    }
+    $redirectUri = "http://localhost:$port/"
+    $state = [Guid]::NewGuid().ToString()
+
+    # offline_access gives a refresh token; harmless even if we don't use it.
+    $scopeStr = (($Scopes + 'offline_access') | Select-Object -Unique) -join ' '
+    $authParams = [ordered]@{
+        client_id             = $ClientId
+        response_type         = 'code'
+        redirect_uri          = $redirectUri
+        response_mode         = 'query'
+        scope                 = $scopeStr
+        state                 = $state
+        code_challenge        = $challenge
+        code_challenge_method = 'S256'
+        prompt                = 'select_account'
+    }
+    $qs = ($authParams.GetEnumerator() | ForEach-Object {
+        "$($_.Key)=$([Uri]::EscapeDataString([string]$_.Value))"
+    }) -join '&'
+    $authUrl = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/authorize?$qs"
+
+    try {
+        Write-Step "Opening browser for sign-in (port $port)..." 'WARN'
+        & open $authUrl 2>$null
+        Write-Step 'Waiting up to 5 minutes for sign-in to complete in browser...'
+
+        # GetContextAsync + Wait gives us a usable timeout (HttpListener.GetContext blocks indefinitely).
+        $task = $listener.GetContextAsync()
+        if (-not $task.Wait([TimeSpan]::FromMinutes(5))) {
+            throw 'Sign-in timed out after 5 minutes.'
+        }
+        $context = $task.Result
+        $authCode      = $context.Request.QueryString['code']
+        $err           = $context.Request.QueryString['error']
+        $errDesc       = $context.Request.QueryString['error_description']
+        $stateReturned = $context.Request.QueryString['state']
+
+        # Render a small confirmation page so the user sees something useful.
+        $bodyHtml = if ($authCode) {
+            "<html><body style='font-family:-apple-system,sans-serif;text-align:center;padding:60px;background:#0b0d10;color:#e5e7eb'><h1 style='color:#67e8f9'>Sign-in complete</h1><p>You can close this tab and return to the terminal.</p></body></html>"
+        } else {
+            # Crude HTML escaping - just strip angle brackets and ampersands.
+            $msg = ("$err - $errDesc" -replace '[<>&]', '')
+            "<html><body style='font-family:-apple-system,sans-serif;text-align:center;padding:60px;background:#0b0d10;color:#e5e7eb'><h1 style='color:#f87171'>Sign-in failed</h1><p>$msg</p></body></html>"
+        }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($bodyHtml)
+        $context.Response.ContentType = 'text/html; charset=utf-8'
+        $context.Response.ContentLength64 = $bytes.Length
+        $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+        $context.Response.Close()
+
+        if ($err)              { throw "OAuth error: $err - $errDesc" }
+        if (-not $authCode)    { throw 'No authorization code returned by Microsoft Entra.' }
+        if ($stateReturned -ne $state) { throw 'OAuth state mismatch (possible CSRF/replay).' }
+
+        $tokenResp = Invoke-RestMethod -Method Post `
+            -Uri "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token" `
+            -ContentType 'application/x-www-form-urlencoded' `
+            -Body @{
+                client_id     = $ClientId
+                scope         = $scopeStr
+                code          = $authCode
+                redirect_uri  = $redirectUri
+                grant_type    = 'authorization_code'
+                code_verifier = $verifier
+            }
+        return $tokenResp.access_token
+    }
+    finally {
+        try { $listener.Stop(); $listener.Close() } catch { }
+    }
+}
+
 function Connect-Services {
     # -Service controls which back-ends to connect to. Default 'All' = the
     # full termination workflow. 'Graph' = just Microsoft Graph (used by the
@@ -84,35 +216,56 @@ function Connect-Services {
     # We also skip Get-ConnectionInformation entirely - in worker mode the
     # process is always fresh, and that cmdlet has a habit of throwing the
     # same NullRef when the module's internal state isn't fully set up yet.
-    # Both platforms use default interactive auth (MSAL picks the right native
-    # backend per OS: WAM on Windows, system browser on macOS). We previously
-    # forced device code on macOS to dodge an old MSAL.NET native browser bug,
-    # but the current ExchangeOnlineManagement 3.x bundles a newer MSAL that
-    # handles macOS browser auth, and device code is now blocked by many
-    # tenants' Conditional Access policies (error AADSTS53003).
+    # Windows: MSAL's WAM/browser path works, just call the cmdlets normally.
+    # macOS: MSAL's default-OS-browser path is broken on macOS 15+ (throws
+    # PlatformNotSupportedException) and device code is widely blocked by
+    # Conditional Access (AADSTS53003), so we run our own OAuth code-with-PKCE
+    # flow and inject the resulting access token via -AccessToken. This
+    # preserves per-admin attribution (token carries the admin's UPN).
     if ($Service -in 'All', 'Exo') {
         Write-Step 'Connecting to Exchange Online...'
         Remove-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
         Import-Module ExchangeOnlineManagement -Force
         if ($IsMacOS) {
-            Write-Step 'A browser window will open for sign-in. Complete authentication there.' 'WARN'
+            # Public client ID for "Microsoft Office Exchange Online Powershell".
+            $exoToken = Invoke-NatMacOAuth `
+                -ClientId 'fb78d390-0c51-40cd-8e17-fdbfab77341b' `
+                -Scopes  @('https://outlook.office365.com/.default')
+            $claims = Get-NatTokenClaims -Token $exoToken
+            $upn    = $claims.upn
+            if (-not $upn) { $upn = $claims.preferred_username }
+            if (-not $upn) { throw 'EXO access token did not contain a UPN claim.' }
+            Connect-ExchangeOnline -AccessToken $exoToken -UserPrincipalName $upn -ShowBanner:$false | Out-Null
+        } else {
+            Connect-ExchangeOnline -ShowBanner:$false | Out-Null
         }
-        Connect-ExchangeOnline -ShowBanner:$false | Out-Null
     }
 
     if ($Service -in 'All', 'Graph') {
         if (-not (Get-MgContext)) {
             Write-Step 'Connecting to Microsoft Graph...'
             if ($IsMacOS) {
-                Write-Step 'A browser window will open for sign-in. Complete authentication there.' 'WARN'
+                # Public client ID for "Microsoft Graph PowerShell".
+                $graphToken = Invoke-NatMacOAuth `
+                    -ClientId '14d82eec-204b-4c2f-b7e8-296a70dab67e' `
+                    -Scopes  @(
+                        'https://graph.microsoft.com/User.ReadWrite.All',
+                        'https://graph.microsoft.com/Group.ReadWrite.All',
+                        'https://graph.microsoft.com/GroupMember.ReadWrite.All',
+                        'https://graph.microsoft.com/Directory.ReadWrite.All',
+                        'https://graph.microsoft.com/Organization.Read.All'
+                    )
+                $secure = ConvertTo-SecureString $graphToken -AsPlainText -Force
+                Connect-MgGraph -AccessToken $secure -NoWelcome | Out-Null
+            } else {
+                Connect-MgGraph -Scopes @(
+                    'User.ReadWrite.All',
+                    'Group.ReadWrite.All',
+                    'GroupMember.ReadWrite.All',
+                    'Directory.ReadWrite.All',
+                    'Organization.Read.All'
+                ) -NoWelcome | Out-Null
             }
-            Connect-MgGraph -Scopes @(
-                'User.ReadWrite.All',
-                'Group.ReadWrite.All',
-                'GroupMember.ReadWrite.All',
-                'Directory.ReadWrite.All',
-                'Organization.Read.All'
-            ) -NoWelcome | Out-Null
         }
     }
 }
