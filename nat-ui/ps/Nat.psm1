@@ -84,44 +84,35 @@ function Connect-Services {
     # We also skip Get-ConnectionInformation entirely - in worker mode the
     # process is always fresh, and that cmdlet has a habit of throwing the
     # same NullRef when the module's internal state isn't fully set up yet.
+    # Both platforms use default interactive auth (MSAL picks the right native
+    # backend per OS: WAM on Windows, system browser on macOS). We previously
+    # forced device code on macOS to dodge an old MSAL.NET native browser bug,
+    # but the current ExchangeOnlineManagement 3.x bundles a newer MSAL that
+    # handles macOS browser auth, and device code is now blocked by many
+    # tenants' Conditional Access policies (error AADSTS53003).
     if ($Service -in 'All', 'Exo') {
         Write-Step 'Connecting to Exchange Online...'
         Remove-Module ExchangeOnlineManagement -Force -ErrorAction SilentlyContinue
         Import-Module ExchangeOnlineManagement -Force
         if ($IsMacOS) {
-            # On macOS, MSAL.NET's native interactive auth path throws
-            # "macOS <ver>" exceptions inside Connect-ExchangeOnline. Device
-            # code flow bypasses the native browser bridge and works reliably.
-            Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
-            Connect-ExchangeOnline -Device -ShowBanner:$false | Out-Null
-        } else {
-            Connect-ExchangeOnline -ShowBanner:$false | Out-Null
+            Write-Step 'A browser window will open for sign-in. Complete authentication there.' 'WARN'
         }
+        Connect-ExchangeOnline -ShowBanner:$false | Out-Null
     }
 
     if ($Service -in 'All', 'Graph') {
         if (-not (Get-MgContext)) {
             Write-Step 'Connecting to Microsoft Graph...'
             if ($IsMacOS) {
-                Write-Step 'macOS detected - using device code authentication. A code and URL will appear in this log; open the URL in any browser and paste the code.' 'WARN'
-                Connect-MgGraph -Scopes @(
-                    'User.ReadWrite.All',
-                    'Group.ReadWrite.All',
-                    'GroupMember.ReadWrite.All',
-                    'Directory.ReadWrite.All',
-                    'Organization.Read.All'
-                ) -UseDeviceAuthentication -NoWelcome 2>&1 6>&1 | ForEach-Object {
-                    [Console]::Out.WriteLine([string]$_); [Console]::Out.Flush()
-                }
-            } else {
-                Connect-MgGraph -Scopes @(
-                    'User.ReadWrite.All',
-                    'Group.ReadWrite.All',
-                    'GroupMember.ReadWrite.All',
-                    'Directory.ReadWrite.All',
-                    'Organization.Read.All'
-                ) -NoWelcome | Out-Null
+                Write-Step 'A browser window will open for sign-in. Complete authentication there.' 'WARN'
             }
+            Connect-MgGraph -Scopes @(
+                'User.ReadWrite.All',
+                'Group.ReadWrite.All',
+                'GroupMember.ReadWrite.All',
+                'Directory.ReadWrite.All',
+                'Organization.Read.All'
+            ) -NoWelcome | Out-Null
         }
     }
 }
