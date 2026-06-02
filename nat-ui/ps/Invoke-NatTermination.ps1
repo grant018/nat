@@ -105,9 +105,41 @@ if (-not $IsMacOS -and -not $env:NAT_IS_WORKER) {
     if ($DryRun)                       { $wArgs.Add('-DryRun') }
     if ($PreflightOnly)                { $wArgs.Add('-PreflightOnly') }
 
-    $proc = Start-Process 'pwsh' -ArgumentList $wArgs -PassThru
+    # Coordinator diagnostic: write directly to the IPC file BEFORE spawning
+    # the worker. If this appears in the UI but nothing else does, we know the
+    # coordinator runs but the worker isn't producing output.
+    $coordStart = @{
+        type    = 'log'
+        level   = 'INFO'
+        message = "Coordinator spawning worker (pwsh=$($PSVersionTable.PSVersion), ipc=$ipcFile)"
+        ts      = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::AppendAllText($ipcFile, $coordStart + "`n")
+
+    try {
+        $proc = Start-Process 'pwsh' -ArgumentList $wArgs -PassThru -ErrorAction Stop
+    } catch {
+        $spawnErr = @{
+            type    = 'fatal'
+            message = "Start-Process pwsh failed: $($_.Exception.Message)"
+            ts      = (Get-Date).ToString('o')
+        } | ConvertTo-Json -Compress
+        [System.IO.File]::AppendAllText($ipcFile, $spawnErr + "`n")
+        # Drain so the UI sees the error.
+        Get-Content -Raw $ipcFile | Write-Output
+        Remove-Item $ipcFile -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
     $env:NAT_IS_WORKER   = ''
     $env:NAT_OUTPUT_FILE = ''
+
+    $coordSpawned = @{
+        type    = 'log'
+        level   = 'INFO'
+        message = "Worker PID=$($proc.Id) spawned"
+        ts      = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::AppendAllText($ipcFile, $coordSpawned + "`n")
 
     $pos = 0L
     do {
@@ -142,6 +174,20 @@ if (-not $IsMacOS -and -not $env:NAT_IS_WORKER) {
             if ($line.Trim()) { [Console]::Out.WriteLine($line); [Console]::Out.Flush() }
         }
         $sr.Dispose(); $fs.Dispose()
+    } catch {}
+
+    # Coordinator post-mortem: emit one final diagnostic with the worker's
+    # exit code and how many bytes it wrote to the IPC. Goes to stdout
+    # directly because the tail loop is done.
+    try {
+        $ipcSize = (Get-Item $ipcFile).Length
+        $coordEnd = @{
+            type    = 'log'
+            level   = 'INFO'
+            message = "Worker exited code=$($proc.ExitCode), ipcBytes=$ipcSize"
+            ts      = (Get-Date).ToString('o')
+        } | ConvertTo-Json -Compress
+        [Console]::Out.WriteLine($coordEnd); [Console]::Out.Flush()
     } catch {}
 
     Remove-Item $ipcFile -Force -ErrorAction SilentlyContinue
