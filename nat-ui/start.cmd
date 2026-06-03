@@ -19,5 +19,5 @@ if not exist "node_modules\express" (
   )
 )
 
-start "" "http://localhost:5757"
+set NAT_OPEN_BROWSER=1
 node server\index.js

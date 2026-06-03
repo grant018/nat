@@ -29,10 +29,5 @@ if [ ! -d "node_modules/express" ]; then
   npm install --omit=dev --no-audit --no-fund
 fi
 
-URL="http://localhost:5757"
-case "$(uname)" in
-  Darwin) open "$URL" >/dev/null 2>&1 || true ;;
-  Linux)  xdg-open "$URL" >/dev/null 2>&1 || true ;;
-esac
-
+export NAT_OPEN_BROWSER=1
 exec node server/index.js

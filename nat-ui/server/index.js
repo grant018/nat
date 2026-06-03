@@ -160,4 +160,19 @@ function isValidUPN(s) {
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`nat-ui listening on http://localhost:${PORT}`);
+
+  // Open the browser only after the server is actually listening, and only
+  // when invoked through start.sh / start.cmd (which set NAT_OPEN_BROWSER=1).
+  // Running `node server/index.js` directly leaves the browser alone.
+  if (process.env.NAT_OPEN_BROWSER === '1') {
+    const url = `http://localhost:${PORT}`;
+    const opts = { detached: true, stdio: 'ignore' };
+    if (IS_WIN) {
+      spawn('cmd', ['/c', 'start', '""', url], opts).unref();
+    } else if (IS_MAC) {
+      spawn('open', [url], opts).unref();
+    } else {
+      spawn('xdg-open', [url], opts).unref();
+    }
+  }
 });
